@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   Project,
   EngineerProfile,
@@ -6,9 +6,20 @@ import {
   Floor,
   SubLocation,
   Vendor,
-  CustomFieldDefinition
+  CustomFieldDefinition,
+  GoogleUser
 } from '../types';
 import { db } from '../db/db';
+import {
+  DEFAULT_GOOGLE_CLIENT_ID,
+  getGoogleClientId,
+  setGoogleClientId,
+  isCustomGoogleClientId,
+  getStoredGoogleUser,
+  signOutGoogle,
+  renderGoogleSignInButton,
+  requestGoogleOAuthToken
+} from '../utils/googleAuth';
 import {
   User,
   Share2,
@@ -20,7 +31,12 @@ import {
   Sparkles,
   Settings,
   Mail,
-  Check
+  Check,
+  ShieldCheck,
+  Key,
+  LogIn,
+  LogOut,
+  AlertCircle
 } from 'lucide-react';
 
 interface SettingsViewProps {
@@ -65,6 +81,82 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [ccEmails, setCcEmails] = useState(project.defaultCcEmails || '');
   const [emailFrequency, setEmailFrequency] = useState(project.emailFrequency || 'Daily');
   const [saveSettingsSuccess, setSaveSettingsSuccess] = useState(false);
+
+  // Google OAuth State
+  const [googleUser, setGoogleUser] = useState<GoogleUser | null>(getStoredGoogleUser());
+  const [activeClientId, setActiveClientId] = useState<string>(getGoogleClientId());
+  const [isCustomClient, setIsCustomClient] = useState<boolean>(isCustomGoogleClientId());
+  const [showOverrideInput, setShowOverrideInput] = useState<boolean>(false);
+  const [customInputVal, setCustomInputVal] = useState<string>('');
+  const [authSuccessMsg, setAuthSuccessMsg] = useState<string>('');
+  const [authErrorMsg, setAuthErrorMsg] = useState<string>('');
+  const googleBtnContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (googleBtnContainerRef.current && !googleUser) {
+      renderGoogleSignInButton(googleBtnContainerRef.current, (user) => {
+        setGoogleUser(user);
+        setAuthSuccessMsg(`Signed in as ${user.name}`);
+        setTimeout(() => setAuthSuccessMsg(''), 3000);
+      });
+    }
+  }, [googleUser, activeClientId]);
+
+  const handleManualGoogleSignIn = async () => {
+    setAuthErrorMsg('');
+    setAuthSuccessMsg('');
+    try {
+      const token = await requestGoogleOAuthToken();
+      const updated = getStoredGoogleUser();
+      if (updated) {
+        setGoogleUser(updated);
+        setAuthSuccessMsg(`Signed in as ${updated.name || updated.email}`);
+      } else {
+        const fallbackUser: GoogleUser = {
+          name: 'Google Authorized User',
+          email: 'Authenticated',
+          accessToken: token
+        };
+        setGoogleUser(fallbackUser);
+        setAuthSuccessMsg('Google OAuth authorized successfully.');
+      }
+      setTimeout(() => setAuthSuccessMsg(''), 3000);
+    } catch (err: any) {
+      setAuthErrorMsg(err?.message || 'Google Sign-In was cancelled or unavailable.');
+    }
+  };
+
+  const handleSignOutGoogle = () => {
+    signOutGoogle();
+    setGoogleUser(null);
+    setAuthSuccessMsg('Signed out of Google account.');
+    setTimeout(() => setAuthSuccessMsg(''), 2500);
+  };
+
+  const handleSaveCustomClientId = () => {
+    const clean = customInputVal.trim();
+    if (!clean) {
+      setGoogleClientId(null);
+    } else {
+      setGoogleClientId(clean);
+    }
+    setActiveClientId(getGoogleClientId());
+    setIsCustomClient(isCustomGoogleClientId());
+    setShowOverrideInput(false);
+    setCustomInputVal('');
+    setAuthSuccessMsg('Google Client ID configuration updated.');
+    setTimeout(() => setAuthSuccessMsg(''), 2500);
+  };
+
+  const handleResetDefaultClientId = () => {
+    setGoogleClientId(null);
+    setActiveClientId(DEFAULT_GOOGLE_CLIENT_ID);
+    setIsCustomClient(false);
+    setShowOverrideInput(false);
+    setCustomInputVal('');
+    setAuthSuccessMsg('Reset to default hardcoded Web Client ID.');
+    setTimeout(() => setAuthSuccessMsg(''), 2500);
+  };
 
   const loadData = async () => {
     if (!project.id) return;
@@ -226,6 +318,129 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <Download size={14} />
             <span>Join via Code</span>
           </button>
+        </div>
+      </div>
+
+      {/* Google Cloud & OAuth Integration */}
+      <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-bold text-slate-700 uppercase tracking-wider">
+            <ShieldCheck size={16} className="text-navy" />
+            <span>Google Cloud & OAuth Integration</span>
+          </div>
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+            isCustomClient ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'
+          }`}>
+            {isCustomClient ? 'Custom Client ID' : 'Default Client (Hardcoded)'}
+          </span>
+        </div>
+
+        <p className="text-xs text-slate-500">
+          Enables one-tap Google Sign-In for team members on iOS Safari and web browsers, authorizing Google Drive & Sheets synchronization.
+        </p>
+
+        {/* User Sign-In Status Card */}
+        {googleUser ? (
+          <div className="p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              {googleUser.picture ? (
+                <img src={googleUser.picture} alt={googleUser.name} className="w-10 h-10 rounded-full border border-emerald-300" />
+              ) : (
+                <div className="w-10 h-10 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-sm">
+                  {googleUser.name.charAt(0) || 'G'}
+                </div>
+              )}
+              <div className="text-xs">
+                <p className="font-bold text-emerald-950">{googleUser.name}</p>
+                <p className="text-emerald-700 text-[11px]">{googleUser.email}</p>
+                <span className="text-[10px] text-emerald-600 font-medium">✓ Google Account Connected</span>
+              </div>
+            </div>
+            <button
+              onClick={handleSignOutGoogle}
+              className="px-3 py-1.5 bg-white border border-emerald-300 text-red-600 hover:bg-red-50 text-xs font-bold rounded-xl flex items-center gap-1 shadow-sm"
+            >
+              <LogOut size={13} /> Sign Out
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div className="text-xs text-center sm:text-left">
+                <p className="font-bold text-slate-800">Google Sign-In Ready</p>
+                <p className="text-[11px] text-slate-500">Sign in to authorize sheets and cloud outbox sync.</p>
+              </div>
+              <div className="flex flex-col sm:flex-row items-center gap-2">
+                <div ref={googleBtnContainerRef} />
+                <button
+                  onClick={handleManualGoogleSignIn}
+                  className="px-3 py-2 bg-navy text-white text-xs font-bold rounded-xl hover:bg-slate-800 flex items-center gap-1.5 shadow"
+                >
+                  <LogIn size={14} /> Tap to Authorize Google
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {authSuccessMsg && (
+          <div className="p-2.5 bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs rounded-xl flex items-center gap-1.5 animate-fadeIn">
+            <Check size={14} className="text-emerald-600" />
+            <span>{authSuccessMsg}</span>
+          </div>
+        )}
+
+        {authErrorMsg && (
+          <div className="p-2.5 bg-red-50 border border-red-200 text-red-700 text-xs rounded-xl flex items-center gap-1.5 animate-fadeIn">
+            <AlertCircle size={14} className="text-red-600 shrink-0" />
+            <span>{authErrorMsg}</span>
+          </div>
+        )}
+
+        {/* Client ID Details & Manual Override */}
+        <div className="pt-2 border-t border-slate-100 text-xs space-y-2">
+          <div className="flex items-center justify-between">
+            <span className="font-semibold text-slate-600">Active Web OAuth Client ID:</span>
+            <button
+              onClick={() => setShowOverrideInput(!showOverrideInput)}
+              className="text-navy font-bold hover:underline text-[11px]"
+            >
+              {showOverrideInput ? 'Cancel Override' : 'Manual Override'}
+            </button>
+          </div>
+
+          <div className="p-2 bg-slate-100 rounded-xl font-mono text-[11px] text-slate-700 break-all select-all">
+            {activeClientId}
+          </div>
+
+          {showOverrideInput && (
+            <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl space-y-2 animate-fadeIn">
+              <label className="block text-[11px] font-bold text-amber-900">
+                Custom Google Web Client ID:
+              </label>
+              <input
+                type="text"
+                placeholder="Paste custom OAuth Client ID (...apps.googleusercontent.com)"
+                value={customInputVal}
+                onChange={e => setCustomInputVal(e.target.value)}
+                className="w-full p-2 rounded-lg border border-amber-300 font-mono text-xs bg-white"
+              />
+              <div className="flex gap-2">
+                <button
+                  onClick={handleResetDefaultClientId}
+                  className="flex-1 py-1.5 bg-white border border-slate-300 text-slate-700 font-bold rounded-lg text-xs"
+                >
+                  Reset to Default
+                </button>
+                <button
+                  onClick={handleSaveCustomClientId}
+                  className="flex-1 py-1.5 bg-navy text-white font-bold rounded-lg text-xs"
+                >
+                  Save Custom ID
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 

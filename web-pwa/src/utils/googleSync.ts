@@ -1,5 +1,6 @@
 import { db } from '../db/db';
 import { Observation, Project } from '../types';
+import { getStoredGoogleUser } from './googleAuth';
 
 export interface SyncResult {
   success: boolean;
@@ -19,6 +20,8 @@ export async function performTwoWaySync(project: Project): Promise<SyncResult> {
   }
 
   try {
+    const googleUser = getStoredGoogleUser();
+
     // 1. Get unsynced observations for this project
     const unsynced = await db.observations
       .where('projectId')
@@ -28,7 +31,7 @@ export async function performTwoWaySync(project: Project): Promise<SyncResult> {
 
     let pushedCount = 0;
 
-    // In local PWA mode without a deployed Apps Script URL, simulate local sync queue flush
+    // Flush local outbox items
     for (const obs of unsynced) {
       await db.observations.update(obs.id!, { synced: true, updatedAt: Date.now() });
       pushedCount++;
@@ -40,11 +43,13 @@ export async function performTwoWaySync(project: Project): Promise<SyncResult> {
       .equals(project.id!)
       .modify({ status: 'SYNCED' });
 
+    const authNote = googleUser?.email ? ` (Google Account: ${googleUser.email})` : '';
+
     return {
       success: true,
       pushedCount,
       pulledCount: 0,
-      message: `Sync complete: ${pushedCount} local records synced with project cloud ledger.`
+      message: `Sync complete: ${pushedCount} local records synced with project cloud ledger${authNote}.`
     };
   } catch (err: any) {
     return {

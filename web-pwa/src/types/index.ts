@@ -9,6 +9,15 @@ export interface EngineerProfile {
   isConfigured: boolean;
 }
 
+export interface GoogleUser {
+  email: string;
+  name: string;
+  picture?: string;
+  accessToken?: string;
+  idToken?: string;
+  expiresAt?: number;
+}
+
 export interface Project {
   id?: number;
   recordUuid: string;
